@@ -1,0 +1,828 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<!-- Added maximum-scale=1.0 and user-scalable=no to prevent double-tap zooming on mobile -->
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Bloch Sphere Simulator</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
+<style>
+
+:root {
+  --bg:    #fdeef8;   
+  --bg2:   #fbe4f3;   
+  --panel: #fef4fb;   
+  --border: #f2c8e6;        
+  --accent:    #c154a0;        
+  --accent2:   #9b59b6;        
+  --text:      #5a2a4a;        
+  --dim:       #c090b0;        
+  --chip-bg:   #e8a0cc;        
+  --shadow:    rgba(180,80,140,0.12);
+  --arrow:  #ff3a5c;
+}
+
+* { margin:0; padding:0; box-sizing:border-box; }
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: 'DM Sans', sans-serif;
+  height: 100dvh; /* 100dvh fixes mobile Safari address bar issues */
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* ── HEADER ── */
+header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 26px;
+  border-bottom: 1px solid var(--border);
+  background: var(--panel);
+  flex-shrink: 0;
+  box-shadow: 0 2px 12px var(--shadow);
+}
+header h1 {
+  font-family: 'DM Serif Display', serif;
+  font-size: 19px;
+  font-weight: 400;
+  letter-spacing: 0.04em;
+  color: var(--accent2);
+}
+header h1 em {
+  color: var(--accent);
+  font-style: italic;
+}
+#hdr-psi   { font-size:13px; color:var(--accent); font-weight:600; }
+#hdr-probs { font-size:11px; color:var(--dim); margin-top:3px; }
+
+/* ── MAIN ── */
+main { display:flex; flex:1; overflow:hidden; }
+
+#viewport {
+  flex: 1;
+  position: relative;
+  overflow: hidden;
+  cursor: grab;
+  background: #fff5fc;
+  touch-action: none; /* CRITICAL FOR MOBILE: Prevents page scroll when rotating 3D sphere */
+}
+#viewport:active { cursor: grabbing; }
+#viewport canvas { display:block; width:100% !important; height:100% !important; outline: none; }
+
+/* ── SIDEBAR ── */
+aside {
+  width: 234px;
+  background: var(--panel);
+  border-left: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  padding: 20px 16px;
+  overflow-y: auto;
+  flex-shrink: 0;
+  box-shadow: -3px 0 16px var(--shadow);
+}
+
+.section-title {
+  font-size: 9px;
+  letter-spacing: 0.22em;
+  color: var(--dim);
+  text-transform: uppercase;
+  margin-bottom: 8px;
+  font-weight: 600;
+}
+
+/* ── GATE BUTTONS ── */
+.gate-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:8px; }
+.gate-btn {
+  aspect-ratio: 1;
+  background: #fff0f8;
+  border: 1.5px solid var(--border);
+  border-radius: 10px;
+  font-family: 'DM Serif Display', serif;
+  font-size: 17px;
+  cursor: pointer;
+  transition: transform 0.1s, border-color 0.15s, background 0.15s, box-shadow 0.15s;
+  box-shadow: 0 2px 8px var(--shadow);
+  touch-action: manipulation; /* Improves tap responsiveness on mobile */
+}
+.gate-btn.X { color:#ff3a5c; } .gate-btn.Y { color:#ff9f1c; }
+.gate-btn.Z { color:#d4a000; } .gate-btn.H { color:#00c49a; }
+.gate-btn.S { color:#9b59b6; } .gate-btn.T { color:#4ea8de; }
+
+@media (hover: hover) {
+  .gate-btn:hover  {
+    border-color: currentColor;
+    background: #fff8fc;
+    transform: scale(1.08);
+    box-shadow: 0 4px 16px var(--shadow);
+  }
+}
+.gate-btn:active { transform: scale(0.93); }
+.gate-btn.flash  { animation: flash 0.25s ease; }
+@keyframes flash { 0%{background:rgba(193,84,160,0.18)} 100%{background:#fff0f8} }
+
+#gate-desc {
+  font-size: 11px;
+  color: var(--dim);
+  line-height: 1.65;
+  min-height: 44px;
+  font-style: italic;
+}
+#gate-desc b { color: var(--accent2); font-style: normal; }
+
+/* ── SEQUENCE CHIPS ── */
+#seq-wrap { display:flex; flex-wrap:wrap; gap:5px; min-height:28px; }
+.chip {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 9px;
+  border-radius: 20px;
+  color: #fff;
+  background: var(--accent);
+  animation: popin 0.2s cubic-bezier(.34,1.56,.64,1);
+  box-shadow: 0 1px 6px var(--shadow);
+}
+@keyframes popin { from{transform:scale(0.4);opacity:0} to{transform:scale(1);opacity:1} }
+
+/* ── PROBABILITY BARS ── */
+.prob-row { display:flex; align-items:center; gap:8px; margin-bottom:8px; }
+.prob-label { font-size:11px; color:var(--dim); width:26px; font-weight:500; }
+.prob-track {
+  flex: 1; height: 6px;
+  background: var(--bg2);
+  border-radius: 3px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+}
+.prob-fill { height:100%; border-radius:3px; transition:width 0.35s ease; }
+.prob-fill.p0 { background: linear-gradient(90deg, #c154a0, #9b59b6); }
+.prob-fill.p1 { background: linear-gradient(90deg, #ff3a5c, #ff7aa0); }
+.prob-pct { font-size:11px; color:var(--text); width:42px; text-align:right; font-weight:500; }
+
+/* ── SPEED SLIDER ── */
+.slider-row { display:flex; align-items:center; gap:8px; font-size:10px; color:var(--dim); }
+.slider-row input {
+  flex: 1;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+/* ── CONTROL BUTTONS ── */
+.ctrl-row { display:flex; gap:8px; }
+.ctrl-btn {
+  flex: 1; padding: 8px 4px;
+  font-family: 'DM Sans', sans-serif;
+  font-size: 10px; font-weight: 500;
+  border-radius: 8px;
+  border: 1.5px solid var(--border);
+  background: #fff0f8;
+  color: var(--dim);
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s, background 0.15s;
+  touch-action: manipulation;
+}
+.ctrl-btn:hover        { border-color:var(--accent);  color:var(--accent);  background:#fce4f3; }
+.ctrl-btn.danger:hover { border-color:#ff3a5c; color:#ff3a5c; background:#fff0f3; }
+
+/* ── FOOTER ── */
+footer {
+  padding: 7px 26px;
+  border-top: 1px solid var(--border);
+  font-size: 10px;
+  color: var(--dim);
+  display: flex;
+  justify-content: space-between;
+  flex-shrink: 0;
+  background: var(--panel);
+  font-style: italic;
+}
+
+/* ── SCROLLBAR ── */
+aside::-webkit-scrollbar { width: 4px; }
+aside::-webkit-scrollbar-track { background: var(--bg2); }
+aside::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+/* ── MOBILE RESPONSIVE ── */
+@media (max-width: 768px) {
+  main { flex-direction: column; }
+
+  aside {
+    width: 100%;
+    flex: 1; /* Take remaining bottom space */
+    flex-direction: row;
+    flex-wrap: wrap;
+    gap: 12px;
+    padding: 12px;
+    border-left: none;
+    border-top: 1px solid var(--border);
+    overflow-y: auto; /* Ensure scrolling works properly inside the control area */
+    overflow-x: hidden;
+  }
+
+  aside > div { flex: 1; min-width: 140px; }
+
+  #viewport { 
+    height: 50dvh; /* Give exact 50% of screen to sphere, keeps it from collapsing */
+    min-height: 250px; 
+    flex: none;
+  }
+
+  header { padding: 8px 14px; }
+  header h1 { font-size: 14px; }
+  
+  .gate-btn { font-size: 14px; }
+  footer { display: none; }
+}
+
+</style>
+</head>
+<body>
+
+<header>
+  <h1><em>Visualising the Bloch Sphere</em> · Quantum Simulator</h1>
+  <div style="text-align:right">
+    <div id="hdr-psi">|ψ⟩ = |0⟩</div>
+    <div id="hdr-probs">P(|0⟩) = 100%  ·  P(|1⟩) = 0%</div>
+  </div>
+</header>
+
+<div style="
+  background: var(--panel);
+  border-bottom: 1px solid var(--border);
+  padding: 6px 26px;
+  font-family: 'DM Serif Display', serif;
+  font-size: 13px;
+  color: var(--dim);
+  letter-spacing: 0.08em;
+  display: flex;
+  gap: 28px;
+  overflow-x: auto;
+  white-space: nowrap;
+">
+  <span>Tanvi Shinde</span>
+  <span style="color:var(--border)">·</span>
+  <span>Urvija Gulati</span>
+  <span style="color:var(--border)">·</span>
+  <span>Parnavi Deka</span>
+</div>
+
+<main>
+  <div id="viewport"></div>
+
+  <aside>
+    <div>
+      <div class="section-title">Apply Gate</div>
+      <div class="gate-grid">
+        <button class="gate-btn X" data-gate="X">X</button>
+        <button class="gate-btn Y" data-gate="Y">Y</button>
+        <button class="gate-btn Z" data-gate="Z">Z</button>
+        <button class="gate-btn H" data-gate="H">H</button>
+        <button class="gate-btn S" data-gate="S">S</button>
+        <button class="gate-btn T" data-gate="T">T</button>
+      </div>
+      <div style="height:10px"></div>
+      <div id="gate-desc">Tap a gate to see what it does.</div>
+    </div>
+
+    <div>
+      <div class="section-title">Sequence (recent 10)</div>
+      <div id="seq-wrap"><span style="font-size:10px;color:var(--dim)">—</span></div>
+    </div>
+
+    <div>
+      <div class="section-title">Measurement Probability</div>
+      <div class="prob-row">
+        <span class="prob-label">|0⟩</span>
+        <div class="prob-track"><div class="prob-fill p0" id="fill0" style="width:100%"></div></div>
+        <span class="prob-pct" id="pct0">100%</span>
+      </div>
+      <div class="prob-row">
+        <span class="prob-label">|1⟩</span>
+        <div class="prob-track"><div class="prob-fill p1" id="fill1" style="width:0%"></div></div>
+        <span class="prob-pct" id="pct1">0%</span>
+      </div>
+    </div>
+
+    <div>
+      <div class="section-title">Speed</div>
+      <div class="slider-row">
+        <span>slow</span>
+        <input type="range" id="speed" min="1" max="10" value="5">
+        <span>fast</span>
+      </div>
+    </div>
+
+    <div>
+      <div class="section-title">Controls</div>
+      <div class="ctrl-row">
+        <button class="ctrl-btn" id="btn-undo">↩ undo</button>
+        <button class="ctrl-btn" id="btn-clear">◌ trail</button>
+        <button class="ctrl-btn danger" id="btn-reset">✕ reset</button>
+      </div>
+    </div>
+  </aside>
+</main>
+
+<footer>
+  <span>drag to rotate · scroll to zoom</span>
+  <span id="footer-seq"></span>
+</footer>
+
+<script>
+// ════════════════════════════════════════════════════
+// SECTION 1 — QUANTUM MATH
+// ════════════════════════════════════════════════════
+let psi = [1, 0, 0, 0];
+function cmul([ar,ai],[br,bi]){ return [ar*br-ai*bi, ar*bi+ai*br]; }
+function cadd([ar,ai],[br,bi]){ return [ar+br, ai+bi]; }
+
+function applyMat(m, p) {
+  const a=[p[0],p[1]], b=[p[2],p[3]];
+  const na = cadd(cmul(m[0][0],a), cmul(m[0][1],b));
+  const nb = cadd(cmul(m[1][0],a), cmul(m[1][1],b));
+  const norm = Math.sqrt(na[0]**2+na[1]**2+nb[0]**2+nb[1]**2);
+  return [na[0]/norm, na[1]/norm, nb[0]/norm, nb[1]/norm];
+}
+
+function stateToBloch(p) {
+  const [ar,ai,br,bi] = p;
+  const bx = 2*(ar*br + ai*bi);
+  const by = 2*(ar*bi - ai*br);
+  const bz = (ar**2+ai**2) - (br**2+bi**2);
+  return new THREE.Vector3(bx, bz, by);
+}
+
+const prob0 = p => p[0]**2 + p[1]**2;
+const prob1 = p => p[2]**2 + p[3]**2;
+
+const s2 = 1/Math.sqrt(2);
+const GATES = {
+  X: [[[0,0],[1,0]],  [[1,0],[0,0]]],
+  Y: [[[0,0],[0,-1]], [[0,1],[0,0]]],
+  Z: [[[1,0],[0,0]],  [[0,0],[-1,0]]],
+  H: [[[s2,0],[s2,0]],[[s2,0],[-s2,0]]],
+  S: [[[1,0],[0,0]],  [[0,0],[0,1]]],
+  T: [[[1,0],[0,0]],  [[0,0],[Math.cos(Math.PI/4),Math.sin(Math.PI/4)]]],
+};
+
+const GATE_INFO = {
+  X: '<b>Pauli-X</b> — NOT gate<br>Flips |0⟩↔|1⟩, rotates 180° around X-axis',
+  Y: '<b>Pauli-Y</b> — Flip + phase<br>Rotates 180° around Y-axis',
+  Z: '<b>Pauli-Z</b> — Phase flip<br>|0⟩→|0⟩, |1⟩→−|1⟩ · Apply H first!',
+  H: '<b>Hadamard</b> — Superposition<br>|0⟩ → (|0⟩+|1⟩)/√2',
+  S: '<b>S / Phase</b> — 90° Z rotation<br>Adds π/2 phase to |1⟩',
+  T: '<b>T gate</b> — 45° Z rotation<br>Adds π/4 phase to |1⟩',
+};
+
+const COLOR_CYCLE = ['#ff3a5c','#ff9f1c','#ffe566','#00e8b8','#b07fff','#4ea8de',
+                     '#e76f51','#43aa8b','#c77dff','#4cc9f0'];
+let colorIdx = 0;
+let history  = [];
+
+// ════════════════════════════════════════════════════
+// SECTION 2 — THREE.JS SETUP
+// ════════════════════════════════════════════════════
+const viewport = document.getElementById('viewport');
+const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+renderer.setPixelRatio(window.devicePixelRatio);
+renderer.setClearColor(0x000000, 0);  
+viewport.appendChild(renderer.domElement);
+
+const threeScene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(45, 1, 0.01, 100);
+
+function onResize() {
+  const w = viewport.clientWidth, h = viewport.clientHeight;
+  renderer.setSize(w, h);
+  camera.aspect = w/h;
+  camera.updateProjectionMatrix();
+}
+onResize();
+window.addEventListener('resize', onResize);
+
+// ════════════════════════════════════════════════════
+// SECTION 3 — ORBIT CAMERA (Touch optimized)
+// ════════════════════════════════════════════════════
+let cam = { theta: 0.8, phi: 1.1, r: 4.5 };
+function updateCamera() {
+  camera.position.set(
+    cam.r * Math.sin(cam.phi) * Math.sin(cam.theta),
+    cam.r * Math.cos(cam.phi),
+    cam.r * Math.sin(cam.phi) * Math.cos(cam.theta)
+  );
+  camera.lookAt(0,0,0);
+}
+updateCamera();
+
+let dragging = false, lastMouse = {x:0,y:0};
+
+// Mouse Events
+viewport.addEventListener('mousedown',  e => { dragging=true; lastMouse={x:e.clientX,y:e.clientY}; });
+window.addEventListener('mouseup',  () => dragging=false);
+window.addEventListener('mousemove', e => {
+  if(!dragging) return;
+  cam.theta -= (e.clientX-lastMouse.x)*0.007;
+  cam.phi    = Math.max(0.05, Math.min(Math.PI-0.05, cam.phi+(e.clientY-lastMouse.y)*0.007));
+  lastMouse  = {x:e.clientX,y:e.clientY};
+  updateCamera();
+});
+
+// Touch Events (Added passive:true for better mobile performance)
+viewport.addEventListener('touchstart', e => { 
+  dragging=true; 
+  lastMouse={x:e.touches[0].clientX,y:e.touches[0].clientY}; 
+}, {passive: true});
+window.addEventListener('touchend', () => dragging=false, {passive: true});
+window.addEventListener('touchmove', e => {
+  if(!dragging) return;
+  cam.theta -= (e.touches[0].clientX-lastMouse.x)*0.007;
+  cam.phi    = Math.max(0.05, Math.min(Math.PI-0.05, cam.phi+(e.touches[0].clientY-lastMouse.y)*0.007));
+  lastMouse  = {x:e.touches[0].clientX,y:e.touches[0].clientY};
+  updateCamera();
+}, {passive: true});
+
+viewport.addEventListener('wheel', e => {
+  cam.r = Math.max(2.0, Math.min(9.0, cam.r+e.deltaY*0.004));
+  updateCamera();
+}, {passive:true});
+
+// ════════════════════════════════════════════════════
+// SECTION 4 — SPHERE, AXES, LABELS
+// ════════════════════════════════════════════════════
+function circlePts(normal, n=100) {
+  const pts=[];
+  for(let i=0;i<=n;i++){
+    const a=2*Math.PI*i/n;
+    if(normal==='z') pts.push(new THREE.Vector3(Math.cos(a),Math.sin(a),0));
+    if(normal==='x') pts.push(new THREE.Vector3(0,Math.cos(a),Math.sin(a)));
+    if(normal==='y') pts.push(new THREE.Vector3(Math.cos(a),0,Math.sin(a)));
+  }
+  return pts;
+}
+
+function buildSphere() {
+  for(let lat=-60; lat<=60; lat+=30){
+    const pts=[], cL=Math.cos(lat*Math.PI/180), sL=Math.sin(lat*Math.PI/180);
+    for(let i=0;i<=80;i++){
+      const a=2*Math.PI*i/80;
+      pts.push(new THREE.Vector3(cL*Math.cos(a), sL, cL*Math.sin(a)));
+    }
+    threeScene.add(new THREE.Line(
+      new THREE.BufferGeometry().setFromPoints(pts),
+      new THREE.LineBasicMaterial({color:0xd080b0, transparent:true, opacity:0.55})
+    ));
+  }
+  for(let lon=0; lon<360; lon+=30){
+    const pts=[], cN=Math.cos(lon*Math.PI/180), sN=Math.sin(lon*Math.PI/180);
+    for(let i=0;i<=80;i++){
+      const a=Math.PI*i/80;
+      pts.push(new THREE.Vector3(cN*Math.sin(a), Math.cos(a), sN*Math.sin(a)));
+    }
+    threeScene.add(new THREE.Line(
+      new THREE.BufferGeometry().setFromPoints(pts),
+      new THREE.LineBasicMaterial({color:0xd080b0, transparent:true, opacity:0.55})
+    ));
+  }
+  threeScene.add(new THREE.Line(
+    new THREE.BufferGeometry().setFromPoints(circlePts('z')),
+    new THREE.LineBasicMaterial({color:0xb060a0, transparent:true, opacity:0.75})
+  ));
+  ['x','y'].forEach(n => threeScene.add(new THREE.Line(
+    new THREE.BufferGeometry().setFromPoints(circlePts(n)),
+    new THREE.LineBasicMaterial({color:0xc080b8, transparent:true, opacity:0.45})
+  )));
+}
+
+function buildAxes() {
+  const mat = new THREE.LineBasicMaterial({color:0x9060a0, transparent:true, opacity:0.55});
+  [[[-1.4,0,0],[1.4,0,0]], [[0,-1.4,0],[0,1.4,0]], [[0,0,-1.4],[0,0,1.4]]].forEach(([a,b]) => {
+    threeScene.add(new THREE.Line(
+      new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(...a), new THREE.Vector3(...b)]), mat
+    ));
+  });
+}
+
+const LABEL_DEFS = [
+  {pos: new THREE.Vector3(0, 1.7, 0),   text:'|0⟩'},
+  {pos: new THREE.Vector3(0,-1.7, 0),   text:'|1⟩'},
+  {pos: new THREE.Vector3( 1.7,0, 0),   text:'|+⟩'},
+  {pos: new THREE.Vector3(-1.7,0, 0),   text:'|−⟩'},
+  {pos: new THREE.Vector3(0, 0, 1.7),   text:'|i⟩'},
+  {pos: new THREE.Vector3(0, 0,-1.7),   text:'|−i⟩'},
+];
+const labelEls = LABEL_DEFS.map(({pos,text}) => {
+  const div = document.createElement('div');
+  div.textContent = text;
+  Object.assign(div.style, {
+    position:'absolute', pointerEvents:'none',
+    fontFamily:"'DM Serif Display', serif",
+    fontSize:'13px', fontWeight:'400',
+    color:'rgba(140,60,110,1)',
+    transform:'translate(-50%,-50%)'
+  });
+  viewport.appendChild(div);
+  return {el:div, pos};
+});
+
+function updateLabels() {
+  const w=viewport.clientWidth, h=viewport.clientHeight;
+  labelEls.forEach(({el,pos}) => {
+    const v = pos.clone().project(camera);
+    el.style.left = ((v.x+1)/2*w)+'px';
+    el.style.top  = ((-v.y+1)/2*h)+'px';
+  });
+}
+
+function buildAxisLabels() {
+  const labels = [
+    { pos: new THREE.Vector3( 1.58, 0,    0   ), text: 'X', color: '#ff4444' },
+    { pos: new THREE.Vector3( 0,    1.58, 0   ), text: 'Z', color: '#8844cc' },
+    { pos: new THREE.Vector3( 0,    0,    1.58), text: 'Y', color: '#33bb66' },
+  ];
+  labels.forEach(({ pos, text, color }) => {
+    const div = document.createElement('div');
+    div.textContent = text;
+    Object.assign(div.style, {
+      position:'absolute', pointerEvents:'none',
+      fontFamily:"'DM Serif Display', serif",
+      fontSize:'12px', fontWeight:'400',
+      color: '#ffffff',        
+      background: color,       
+      padding:'1px 6px', borderRadius:'4px',
+      transform:'translate(-50%,-50%)',
+      border: `1px solid ${color}`,
+    });
+    viewport.appendChild(div);
+    labelEls.push({ el: div, pos });
+  });
+}
+
+buildSphere();
+buildAxes();
+
+// ════════════════════════════════════════════════════
+// SECTION 5 — STATE VECTOR ARROW 
+// ════════════════════════════════════════════════════
+const arrowGeo = new THREE.BufferGeometry().setFromPoints([
+  new THREE.Vector3(0,0,0), new THREE.Vector3(0,1,0)
+]);
+const arrowLine = new THREE.Line(arrowGeo, new THREE.LineBasicMaterial({color:0xff3a5c, linewidth:2}));
+threeScene.add(arrowLine);
+
+const cone = new THREE.Mesh(
+  new THREE.ConeGeometry(0.045, 0.14, 12),
+  new THREE.MeshBasicMaterial({color:0xff3a5c})
+);
+threeScene.add(cone);
+
+const projGeo = new THREE.BufferGeometry().setFromPoints([
+  new THREE.Vector3(0,0,0), new THREE.Vector3(0,0,0)
+]);
+const projLine = new THREE.Line(projGeo,
+  new THREE.LineBasicMaterial({color:0xff3a5c, transparent:true, opacity:0.2})
+);
+threeScene.add(projLine);
+
+function updateArrow(vec) {
+  const v = vec.clone().normalize();
+  const pos = arrowLine.geometry.attributes.position;
+  pos.setXYZ(0, 0,0,0);
+  pos.setXYZ(1, v.x,v.y,v.z);
+  pos.needsUpdate = true;
+  cone.position.copy(v);
+  if(v.length() > 0.01)
+    cone.quaternion.setFromUnitVectors(new THREE.Vector3(0,1,0), v.clone().normalize());
+  const pp = projLine.geometry.attributes.position;
+  pp.setXYZ(0, v.x,v.y,v.z);
+  pp.setXYZ(1, v.x,0,v.z);
+  pp.needsUpdate = true;
+}
+
+// ════════════════════════════════════════════════════
+// SECTION 6 — TRAIL
+// ════════════════════════════════════════════════════
+const MAX_TRAIL = 3000;
+const trailPos = new Float32Array(MAX_TRAIL*3);
+const trailCol = new Float32Array(MAX_TRAIL*3);
+const trailGeo = new THREE.BufferGeometry();
+trailGeo.setAttribute('position', new THREE.BufferAttribute(trailPos,3));
+trailGeo.setAttribute('color',    new THREE.BufferAttribute(trailCol,3));
+trailGeo.setDrawRange(0,0);
+const trailLine = new THREE.Line(trailGeo,
+  new THREE.LineBasicMaterial({vertexColors:true, transparent:true, opacity:0.9})
+);
+threeScene.add(trailLine);
+let trailCount = 0;
+let currentColor = new THREE.Color(0xc154a0);
+
+function addTrailPoint(vec) {
+  if(trailCount >= MAX_TRAIL) return;
+  trailPos.set([vec.x,vec.y,vec.z], trailCount*3);
+  trailCol.set([currentColor.r,currentColor.g,currentColor.b], trailCount*3);
+  trailCount++;
+  trailGeo.setDrawRange(0, trailCount);
+  trailGeo.attributes.position.needsUpdate = true;
+  trailGeo.attributes.color.needsUpdate    = true;
+}
+
+function clearTrail() {
+  trailCount = 0;
+  trailGeo.setDrawRange(0,0);
+  trailGeo.attributes.position.needsUpdate = true;
+}
+
+const dotGroup = new THREE.Group();
+threeScene.add(dotGroup);
+function addDot(pos, hexStr) {
+  const m = new THREE.Mesh(
+    new THREE.SphereGeometry(0.03,10,10),
+    new THREE.MeshBasicMaterial({color: new THREE.Color(hexStr)})
+  );
+  m.position.copy(pos);
+  dotGroup.add(m);
+}
+function clearDots() {
+  while(dotGroup.children.length) dotGroup.remove(dotGroup.children[0]);
+}
+
+// ════════════════════════════════════════════════════
+// SECTION 7 — SLERP + ANIMATOR
+// ════════════════════════════════════════════════════
+function slerp(v1, v2, t) {
+  const n1 = v1.clone().normalize();
+  const n2 = v2.clone().normalize();
+  const dot = Math.max(-1, Math.min(1, n1.dot(n2)));
+  const omega = Math.acos(dot);
+  if(Math.abs(omega) < 1e-6) return v2.clone();
+  const sinO = Math.sin(omega);
+  return n1.multiplyScalar(Math.sin((1-t)*omega)/sinO)
+           .add(n2.multiplyScalar(Math.sin(t*omega)/sinO));
+}
+
+let animating=false, animProgress=0;
+let animFrom=null, animTo=null, animColor=null, animArcMid=null;
+let gateQueue=[];
+const getSpeed = () => 0.008 + 0.052*(document.getElementById('speed').value-1)/9;
+
+function processNext() {
+  if(!gateQueue.length){ animating=false; return; }
+  const {fromVec,toVec,color,gateName} = gateQueue.shift();
+  animFrom=fromVec.clone().normalize();
+  animTo=toVec.clone().normalize();
+  animColor=color; animProgress=0; animating=true;
+  currentColor.set(color);
+  addDot(animFrom, color);
+
+  const dot = animFrom.dot(animTo);
+  if(dot < -0.99) {
+    let axis;
+    if(gateName==='X')      axis = new THREE.Vector3(1,0,0);
+    else if(gateName==='Y') axis = new THREE.Vector3(0,0,1);
+    else                     axis = animFrom.clone().cross(new THREE.Vector3(0,1,0)).normalize();
+    animArcMid = animFrom.clone().applyAxisAngle(axis, Math.PI/2).normalize();
+  } else {
+    animArcMid = null;
+  }
+}
+
+function tick() {
+  if(!animating) return;
+  animProgress = Math.min(1, animProgress+getSpeed());
+  const t = animProgress<0.5 ? 2*animProgress**2 : -1+(4-2*animProgress)*animProgress;
+  const dot = animFrom.dot(animTo);
+  let vec;
+  if(dot < -0.99 && animArcMid) {
+    const mid = animFrom.clone().add(animArcMid).normalize();
+    vec = t<0.5 ? slerp(animFrom,mid,t*2).normalize() : slerp(mid,animTo,(t-0.5)*2).normalize();
+  } else {
+    vec = slerp(animFrom,animTo,t).normalize();
+  }
+  updateArrow(vec);
+  addTrailPoint(vec);
+  if(animProgress >= 1){ addDot(animTo.clone().normalize(), animColor); processNext(); }
+}
+
+// ════════════════════════════════════════════════════
+// SECTION 8 — GATE APPLICATION + UI
+// ════════════════════════════════════════════════════
+function applyGate(gateName) {
+  const fromVec = stateToBloch(psi).normalize();
+  history.push({gateName, psiBefore:[...psi]});
+  psi = applyMat(GATES[gateName], psi);
+  const toVec = stateToBloch(psi).normalize();
+  const color = COLOR_CYCLE[colorIdx++ % COLOR_CYCLE.length];
+  gateQueue.push({fromVec,toVec,color,gateName});
+  if(!animating) processNext();
+  updateUI();
+  addChip(gateName, color);
+}
+
+function updateUI() {
+  const p0=(prob0(psi)*100).toFixed(1), p1=(prob1(psi)*100).toFixed(1);
+  document.getElementById('fill0').style.width = p0+'%';
+  document.getElementById('fill1').style.width = p1+'%';
+  document.getElementById('pct0').textContent  = p0+'%';
+  document.getElementById('pct1').textContent  = p1+'%';
+  document.getElementById('hdr-probs').textContent =
+    `P(|0⟩) = ${parseFloat(p0).toFixed(0)}%  ·  P(|1⟩) = ${parseFloat(p1).toFixed(0)}%`;
+}
+
+function addChip(gateName, color) {
+  const wrap = document.getElementById('seq-wrap');
+  const placeholder = wrap.querySelector('span:not(.chip)');
+  if(placeholder) placeholder.remove();
+  const chip = document.createElement('span');
+  chip.className='chip'; chip.textContent=gateName;
+  chip.style.background=color;
+  wrap.appendChild(chip);
+  const chips = wrap.querySelectorAll('.chip');
+  if(chips.length > 10) chips[0].remove();
+  const seq = [...wrap.querySelectorAll('.chip')].map(c=>c.textContent).join(' → ');
+  document.getElementById('footer-seq').textContent = seq;
+  document.getElementById('hdr-psi').textContent = '|ψ⟩  ' + seq;
+}
+
+function flashBtn(name) {
+  const btn = document.querySelector(`.gate-btn.${name}`);
+  if(!btn) return;
+  btn.classList.remove('flash');
+  void btn.offsetWidth;
+  btn.classList.add('flash');
+}
+
+// ════════════════════════════════════════════════════
+// SECTION 9 — EVENT LISTENERS
+// ════════════════════════════════════════════════════
+document.querySelectorAll('.gate-btn').forEach(btn => {
+  const name = btn.dataset.gate;
+  btn.addEventListener('click', () => { applyGate(name); flashBtn(name); });
+  
+  // Mobile fallback for tooltips since hover doesn't exist
+  btn.addEventListener('touchstart', () => {
+    document.getElementById('gate-desc').innerHTML = GATE_INFO[name]||'';
+  }, {passive: true});
+  
+  btn.addEventListener('mouseenter', () => {
+    document.getElementById('gate-desc').innerHTML = GATE_INFO[name]||'';
+  });
+  btn.addEventListener('mouseleave', () => {
+    document.getElementById('gate-desc').textContent = 'Hover a gate to see what it does.';
+  });
+});
+
+document.getElementById('btn-reset').addEventListener('click', () => {
+  psi=[1,0,0,0]; gateQueue=[]; animating=false; colorIdx=0; history=[];
+  clearTrail(); clearDots();
+  currentColor.set(0xc154a0);
+  updateArrow(stateToBloch(psi));
+  updateUI();
+  document.getElementById('seq-wrap').innerHTML='<span style="font-size:10px;color:var(--dim)">—</span>';
+  document.getElementById('footer-seq').textContent='';
+  document.getElementById('hdr-psi').textContent='|ψ⟩ = |0⟩';
+});
+
+document.getElementById('btn-clear').addEventListener('click', () => { clearTrail(); clearDots(); });
+
+document.getElementById('btn-undo').addEventListener('click', () => {
+  if(animating || !history.length) return;
+  const last = history.pop();
+  psi = [...last.psiBefore];
+  colorIdx = Math.max(0, colorIdx-1);
+  gateQueue=[]; animating=false;
+  clearTrail(); clearDots();
+  const wrap = document.getElementById('seq-wrap');
+  const chips = wrap.querySelectorAll('.chip');
+  if(chips.length) chips[chips.length-1].remove();
+  if(!wrap.querySelector('.chip'))
+    wrap.innerHTML='<span style="font-size:10px;color:var(--dim)">—</span>';
+  currentColor.set(colorIdx>0 ? COLOR_CYCLE[(colorIdx-1)%COLOR_CYCLE.length] : 0xc154a0);
+  updateArrow(stateToBloch(psi));
+  updateUI();
+  const seq=[...wrap.querySelectorAll('.chip')].map(c=>c.textContent).join(' → ');
+  document.getElementById('footer-seq').textContent=seq;
+  document.getElementById('hdr-psi').textContent=seq?'|ψ⟩  '+seq:'|ψ⟩ = |0⟩';
+});
+
+// ════════════════════════════════════════════════════
+// SECTION 10 — RENDER LOOP
+// ════════════════════════════════════════════════════
+function renderLoop() {
+  requestAnimationFrame(renderLoop);
+  tick();
+  updateLabels();
+  renderer.render(threeScene, camera);
+}
+
+buildAxisLabels();
+updateArrow(stateToBloch(psi));
+updateUI();
+renderLoop();
+</script>
+</body>
+</html>
